@@ -20,7 +20,7 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Argo CD Repository Clone
+      - name: ArgoCD Repository Clone
         run: |
           git clone https://github.com/leonardobgsilva/app-leocinema-kubernetes.git
 
