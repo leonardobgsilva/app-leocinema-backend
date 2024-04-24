@@ -28,7 +28,7 @@ jobs:
         run: |
           sed -i 's/leocinema-backend:.*/leocinema-backend:argocd/' app-leocinema-kubernetes/helm/leocinema/values.yaml
 
-      - name: Commit e Push das Alterações para o Repositório do ArgoCD
+      - name: Commit and Push Changes to the ArgoCD Repository
         run: |
           cd app-leocinema-kubernetes
           git config --local user.email "ghactions@backend.com"
