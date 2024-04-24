@@ -35,4 +35,4 @@ jobs:
           git config --local user.name "Backend GitHub Actions"
           git add helm/leocinema/values.yaml
           git commit -m "Atualização automática da tag da imagem Docker Backend"
-          git push https://${{ secrets.ARGOCD_TOKEN }}@github.com/leonardobgsilva/app-leocinema-kubernetes.git
+          git push https://${{ secrets.GH_TOKEN }}@github.com/leonardobgsilva/app-leocinema-kubernetes.git
