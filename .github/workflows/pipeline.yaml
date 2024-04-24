@@ -1,0 +1,38 @@
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Build Docker Image
+        run: |
+          docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password ${{ secrets.DOCKERHUB_PASSWORD }}
+          docker build -t leobgs/leocinema-backend:argocd .
+          docker push leobgs/leocinema-backend:argocd
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Argo CD Repository Clone
+        run: |
+          git clone https://github.com/leonardobgsilva/app-leocinema-kubernetes.git
+
+      - name: Update values.yaml file
+        run: |
+          sed -i 's/leocinema-backend:.*/leocinema-backend:argocd/' app-leocinema-kubernetes/helm/leocinema/values.yaml
+
+      - name: Commit e Push das Alterações para o Repositório do ArgoCD
+        run: |
+          cd app-leocinema-kubernetes
+          git config --local user.email "ghactions@backend.com"
+          git config --local user.name "Backend GitHub Actions"
+          git add helm/leocinema/values.yaml
+          git commit -m "Atualização automática da tag da imagem Docker Backend"
+          git push https://${{ secrets.ARGOCD_TOKEN }}@github.com/leonardobgsilva/app-leocinema-kubernetes.git
