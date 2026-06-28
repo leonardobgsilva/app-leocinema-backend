@@ -4,8 +4,6 @@ const Sequelize = require('sequelize');
 const cors = require('cors');
 require('dotenv').config();
 
-const authMiddleware = require('./auth'); // Importe o middleware de autenticação
-
 const app = express();
 const PORT = 3333;
 
@@ -59,7 +57,7 @@ app.use(cors({
 app.use(bodyParser.json());
 
 // Rotas
-app.post('/comprar-ingresso', authMiddleware, async (req, res) => {
+app.post('/comprar-ingresso', async (req, res) => {
   const { movie, date, time, quantity } = req.body;
 
   try {
