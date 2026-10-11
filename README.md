@@ -98,11 +98,36 @@ docker run -p 3333:3333 \
 
 ## 🚀 CI/CD
 
-O pipeline do GitHub Actions (`pipeline.yaml`) é acionado a cada push na branch `main` e:
+![Fluxo do pipeline](docs/ci-pipeline.png)
 
-1. Builda a imagem e faz push para o Docker Hub
-2. Atualiza o `values.yaml` do repositório Kubernetes com a nova tag
-3. O ArgoCD detecta a mudança e sincroniza automaticamente o cluster
+O workflow `pipeline.yaml` roda a cada push em `main` e `oidc`:
+
+1. **Autentica na AWS por OIDC.** O GitHub emite um token de curta duração e o AWS STS o troca por credenciais temporárias no papel IAM `leocinema-gha-ecr-push`. Não há access key em secret. O papel só aceita este repositório, nas branches permitidas, e só pode fazer push nos repositórios ECR do projeto. O Terraform dele está em [tf-oidc](https://github.com/leonardobgsilva/tf-oidc).
+2. **Builda e envia a imagem ao Amazon ECR** com a tag igual ao SHA do commit. Os repositórios ECR têm tags imutáveis, então uma tag sempre aponta para um único build.
+3. **Roda o Trivy** na imagem. Por enquanto é só relatório (não barra o build) e o resultado fica no log da execução.
+4. **Abre um Pull Request** no [app-leocinema-kubernetes](https://github.com/leonardobgsilva/app-leocinema-kubernetes) trocando a imagem no `values.yaml`. Depois do merge, o ArgoCD sincroniza o cluster.
+
+### Antes e depois
+
+| | Antes | Depois |
+|---|---|---|
+| Credenciais | Usuário e senha do Docker Hub em secrets | Credenciais temporárias via OIDC, sem access key |
+| Tag da imagem | `argocd` (mutável, reaproveitada a cada build) | SHA do commit (imutável no ECR) |
+| Atualização do GitOps | `git push` na `main` com token pessoal na URL | Pull Request, com token limitado a um repositório |
+| Scan de imagem | Nenhum | Trivy a cada build |
+| Actions | `actions/checkout@v2` | Versões atuais |
+
+### Secrets necessários
+
+- `AWS_ROLE_ARN`: ARN do papel IAM (output `role_arn` do [tf-oidc](https://github.com/leonardobgsilva/tf-oidc)).
+- `GITOPS_TOKEN`: token fino do GitHub, limitado ao repositório Kubernetes (Contents e Pull requests em *Read and write*).
+
+### Limites conhecidos
+
+- O deploy da imagem do ECR no EKS **não foi testado** (o cluster fica desligado para não gerar custo). O pipeline foi validado até a abertura do Pull Request.
+- O `GITOPS_TOKEN` ainda é um token de longa duração. O próximo passo seria trocá-lo por um GitHub App.
+- A imagem base é `node:14-alpine`, que está fora de suporte, e o relatório do Trivy não foi tratado neste projeto.
+- O frontend roda em S3 + CloudFront e não passa por este pipeline.
 
 ## 🔗 Repositório Kubernetes
 
