@@ -57,6 +57,23 @@ app-leocinema-backend/
 
 **Resposta `200`:** `OK`
 
+## 📈 Métricas (Prometheus)
+
+O backend expõe `GET /metrics` em uma **porta separada** (`9091` por padrão), fora da porta da API (`3333`). O Ingress só publica a porta da API, então as métricas não ficam acessíveis pela internet, apenas dentro do cluster (scrape do Prometheus via `ServiceMonitor`).
+
+| Métrica | Tipo | Descrição |
+|---|---|---|
+| `http_request_duration_seconds` | histogram | Duração das requisições por `method`, `route` e `status_code`. Dela saem taxa (`_count`), erros (`status_code`) e latência (`_bucket`) |
+| `leocinema_tickets_sold_total` | counter | Total de ingressos vendidos |
+| `process_*`, `nodejs_*` | — | Métricas padrão do processo (CPU, memória, event loop, GC) |
+
+- O label `route` usa o padrão da rota (`/comprar-ingresso`), não a URL, para manter a cardinalidade baixa. Rotas inexistentes viram `unmatched`.
+- `/health` não é medido: a liveness probe o chama a cada 10s por pod e distorceria os números do tráfego real.
+
+```bash
+curl localhost:9091/metrics
+```
+
 ## ⚙️ Variáveis de Ambiente
 
 | Variável | Descrição |
@@ -65,6 +82,7 @@ app-leocinema-backend/
 | `DB_DATABASE` | Nome do banco de dados |
 | `DB_USER` | Usuário do banco de dados |
 | `DB_PASSWORD` | Senha do banco de dados |
+| `METRICS_PORT` | Porta do `/metrics` (padrão `9091`) |
 
 ## 🐳 Docker
 
