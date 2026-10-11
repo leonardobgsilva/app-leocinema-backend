@@ -122,6 +122,16 @@ O workflow `pipeline.yaml` roda a cada push em `main` e `oidc`:
 - `AWS_ROLE_ARN`: ARN do papel IAM (output `role_arn` do [tf-oidc](https://github.com/leonardobgsilva/tf-oidc)).
 - `GITOPS_TOKEN`: token fino do GitHub, limitado ao repositório Kubernetes (Contents e Pull requests em *Read and write*).
 
+### Imagem pública no Docker Hub
+
+O workflow `dockerhub.yaml` é independente do pipeline da AWS. A cada push na `main` (ou manualmente, em *Actions → Run workflow*) ele publica a imagem em [leobgs/leocinema-backend](https://hub.docker.com/r/leobgs/leocinema-backend), com as tags `latest` e o SHA do commit, para qualquer pessoa testar em outra máquina:
+
+```bash
+docker pull leobgs/leocinema-backend:latest
+```
+
+Secrets necessários: `DOCKERHUB_USERNAME` e `DOCKERHUB_PASSWORD` (use um *Access Token* do Docker Hub com permissão de leitura e escrita, não a senha da conta). A tag `argocd`, usada pelo fluxo antigo, não é mais atualizada.
+
 ### Limites conhecidos
 
 - O deploy da imagem do ECR no EKS **não foi testado** (o cluster fica desligado para não gerar custo). O pipeline foi validado até a abertura do Pull Request.
