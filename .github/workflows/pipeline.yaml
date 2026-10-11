@@ -1,38 +1,125 @@
+name: Backend CI
+
 on:
   push:
     branches:
       - main
+      - oidc
+  workflow_dispatch:
+
+# Only one run per branch at a time
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege for the default GITHUB_TOKEN.
+# id-token: write lets the job request the OIDC token that AWS validates.
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: leocinema-backend
+  GITOPS_REPO: leonardobgsilva/app-leocinema-kubernetes
+  GITOPS_BASE_BRANCH: v2
+  VALUES_FILE: helm/leocinema/values.yaml
 
 jobs:
-  build-and-deploy:
+  build-scan-push:
+    name: Build, scan and push to ECR
     runs-on: ubuntu-latest
-
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Build Docker Image
+      # No access keys: GitHub issues a short-lived OIDC token and AWS STS
+      # exchanges it for temporary credentials on the role below.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Immutable tag = short commit SHA, so Git always says what runs in the cluster.
+      - name: Compute image reference
+        id: meta
         run: |
-          docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password ${{ secrets.DOCKERHUB_PASSWORD }}
-          docker build -t leobgs/leocinema-backend:argocd .
-          docker push leobgs/leocinema-backend:argocd
+          TAG="${GITHUB_SHA::7}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "image=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.image }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Report only for now (exit-code 0): the base image is old and the
+      # findings are documented in the README instead of blocking the build.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+  update-gitops:
+    name: Open GitOps pull request
+    needs: build-scan-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Fine-grained token limited to the GitOps repository (contents + pull requests).
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          ref: ${{ env.GITOPS_BASE_BRANCH }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Update image in values.yaml
+        working-directory: gitops
+        run: |
+          sed -i "s|image: .*leocinema-backend:.*|image: ${{ needs.build-scan-push.outputs.image }}|" "${VALUES_FILE}"
+          git diff --stat
+
+      - name: Open pull request
+        working-directory: gitops
         env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: ArgoCD Repository Clone
+          GH_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          IMAGE: ${{ needs.build-scan-push.outputs.image }}
         run: |
-          git clone https://github.com/leonardobgsilva/app-leocinema-kubernetes.git
-
-      - name: Update values.yaml file
-        run: |
-          sed -i 's/leocinema-backend:.*/leocinema-backend:argocd/' app-leocinema-kubernetes/helm/leocinema/values.yaml
-
-      - name: Commit and Push Changes to the ArgoCD Repository
-        run: |
-          cd app-leocinema-kubernetes
-          git config --local user.email "ghactions@backend.com"
-          git config --local user.name "Backend GitHub Actions"
-          git add helm/leocinema/values.yaml
-          git commit -m "Atualização automática da tag da imagem Docker Backend"
-          git push https://${{ secrets.GH_TOKEN }}@github.com/leonardobgsilva/app-leocinema-kubernetes.git
+          SHORT="${GITHUB_SHA::7}"
+          BRANCH="ci/backend-${SHORT}"
+          if git diff --quiet; then
+            echo "values.yaml already points to ${IMAGE}, nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${BRANCH}"
+          git add "${VALUES_FILE}"
+          git commit -m "ci: backend image ${SHORT}"
+          git push origin "${BRANCH}"
+          gh pr create \
+            --base "${GITOPS_BASE_BRANCH}" \
+            --head "${BRANCH}" \
+            --title "ci: backend image ${SHORT}" \
+            --body "Automated update from ${GITHUB_REPOSITORY}@${GITHUB_SHA}. Image: \`${IMAGE}\`"
