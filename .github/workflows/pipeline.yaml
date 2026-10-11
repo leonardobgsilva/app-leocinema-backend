@@ -70,7 +70,7 @@ jobs:
       # Report only for now (exit-code 0): the base image is old and the
       # findings are documented in the README instead of blocking the build.
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.meta.outputs.image }}
           format: table
